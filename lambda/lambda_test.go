@@ -1,4 +1,4 @@
-package main
+package lambda
 
 import "testing"
 
@@ -80,10 +80,10 @@ var cases = []struct {
 
 func TestScanner(t *testing.T) {
 	for _, tt := range cases {
-		scanner := scanner{program: []rune(tt.program)}
-		tokens, _ := scanner.scan()
-		parser := parser{tokens: tokens}
-		res := parser.parse().String()
+		scanner := Scanner{Program: []rune(tt.program)}
+		tokens, _ := scanner.Scan()
+		parser := Parser{Tokens: tokens}
+		res := parser.Parse().String()
 		t.Run(tt.program, func(t *testing.T) {
 			if res != tt.textify {
 				t.Errorf("expected %v, but got %v", tt.textify, res)
@@ -94,12 +94,12 @@ func TestScanner(t *testing.T) {
 
 func TestInterpreter(t *testing.T) {
 	for _, tt := range cases {
-		scanner := scanner{program: []rune(tt.program)}
-		tokens, _ := scanner.scan()
-		parser := parser{tokens: tokens}
-		ast := parser.parse()
-		interpreter := interpreter{ast: ast}
-		value := interpreter.interpret()
+		scanner := Scanner{Program: []rune(tt.program)}
+		tokens, _ := scanner.Scan()
+		parser := Parser{Tokens: tokens}
+		ast := parser.Parse()
+		interpreter := Interpreter{Ast: ast}
+		value := interpreter.Interpret()
 		t.Run(tt.program, func(t *testing.T) {
 			if value.String() != tt.value {
 				t.Errorf("expected %v, but got %v", tt.value, value.String())
