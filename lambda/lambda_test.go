@@ -99,7 +99,7 @@ func TestInterpreter(t *testing.T) {
 		parser := Parser{Tokens: tokens}
 		ast := parser.Parse()
 		interpreter := Interpreter{Ast: ast}
-		value := interpreter.Interpret()
+		value := interpreter.Interpret(environment{})
 		t.Run(tt.program, func(t *testing.T) {
 			if value.String() != tt.value {
 				t.Errorf("expected %v, but got %v", tt.value, value.String())

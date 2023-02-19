@@ -19,6 +19,7 @@ const (
 	let        tokenType = "let"
 	equal      tokenType = "equal"
 	in         tokenType = "in"
+	quote      tokenType = "'"
 )
 
 type token struct {
@@ -118,6 +119,9 @@ func (s *Scanner) Scan() ([]token, error) {
 		case '=':
 			s.consume("=")
 			s.addToken(token{equal, "="})
+		case '\'':
+			s.consume("'")
+			s.addToken(token{quote, "'"})
 		default:
 			// extra space to avoid confliciton with identifier starting with "let"
 			if s.match("let") {
@@ -167,6 +171,16 @@ type binding struct {
 func (binding) isExpression() {}
 func (b binding) String() string {
 	return fmt.Sprintf("let %v = %v in %v", b.name, b.value, b.body)
+}
+
+type replBinding struct {
+	name  variable
+	value expression
+}
+
+func (replBinding) isExpression() {}
+func (b replBinding) String() string {
+	return fmt.Sprintf("let %v = %v", b.name, b.value)
 }
 
 type abstraction struct {
@@ -250,7 +264,21 @@ func (p *Parser) Parse() expression {
 }
 
 func (p *Parser) expression() expression {
+	if p.current().tokenType == quote {
+		return p.replBinding()
+	}
 	return p.binding()
+}
+
+func (p *Parser) replBinding() expression {
+	p.consume(quote)
+	p.consumeMaybe(whiteSpace)
+	v := p.variable()
+	p.consumeMaybe(whiteSpace)
+	p.consume(equal)
+	p.consumeMaybe(whiteSpace)
+	abs := p.abstraction()
+	return replBinding{name: v, value: abs}
 }
 
 func (p *Parser) binding() expression {
@@ -365,8 +393,8 @@ type Interpreter struct {
 	Ast expression
 }
 
-func (i *Interpreter) Interpret() expression {
-	return eval(i.Ast, environment{})
+func (i *Interpreter) Interpret(env environment) expression {
+	return eval(i.Ast, env)
 }
 
 func eval(exp expression, env environment) expression {
@@ -374,6 +402,8 @@ func eval(exp expression, env environment) expression {
 	switch exp := exp.(type) {
 	case binding:
 		return eval(exp.body, env.bind(exp.name, eval(exp.value, env)))
+	case replBinding:
+		return replBinding{name: exp.name, value: eval(exp.value, env)}
 	case abstraction:
 		// variable shadowing
 		return abstraction{exp.param, eval(exp.expr, env.bind(exp.param, exp.param))}
@@ -399,8 +429,9 @@ func eval(exp expression, env environment) expression {
 func Repl() {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("> ")
+	env := environment{}
 	for {
-		text, err := reader.ReadString(';')
+		text, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Println(err)
 			break
@@ -416,7 +447,14 @@ func Repl() {
 		}
 		parser := Parser{Tokens: tokens}
 		interpreter := Interpreter{Ast: parser.Parse()}
-		fmt.Println(interpreter.Interpret())
+		value := interpreter.Interpret(env)
+		switch v := value.(type) {
+		case replBinding:
+			env = env.bind(v.name, v.value)
+			fmt.Printf("%v => %v\n", v.name, v.value)
+		default:
+			fmt.Println(value)
+		}
 		fmt.Print("> ")
 	}
 }
