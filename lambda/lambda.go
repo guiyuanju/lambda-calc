@@ -54,7 +54,16 @@ func (s *Scanner) identifier() (token, error) {
 	isLetter := func(c string) bool {
 		return c >= "a" && c <= "z" || c >= "A" && c <= "Z"
 	}
-	for !s.isEnd() && isLetter(string(s.current())) {
+	isDigit := func(c string) bool {
+		return c >= "0" && c <= "9"
+	}
+	isArithmatic := func(c string) bool {
+		return c == "+" || c == "-" || c == "*" || c == "/"
+	}
+	for !s.isEnd() &&
+		(isLetter(string(s.current())) ||
+			isDigit(string(s.current())) ||
+			isArithmatic(string(s.current()))) {
 		id += string(s.current())
 		s.advance()
 	}
