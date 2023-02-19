@@ -68,18 +68,22 @@ var cases = []struct {
 		"(y y)",
 	},
 	// {
-	// 	"(𝞴f.f y) (𝞴x.x x)",
-	// 	"(𝞴f.f y) (𝞴x.x x)",
-	// 	"y y",
+	// 	"(x",
+	// 	"(x",
+	// 	"(x",
 	// },
+	// {
+	// 	"(def x y)",
+	// 	"()"
+	// }
 }
 
 func TestScanner(t *testing.T) {
 	for _, tt := range cases {
 		scanner := scanner{program: []rune(tt.program)}
-		tokens := scanner.scan()
+		tokens, _ := scanner.scan()
 		parser := parser{tokens: tokens}
-		res := parser.parse().textify()
+		res := parser.parse().String()
 		t.Run(tt.program, func(t *testing.T) {
 			if res != tt.textify {
 				t.Errorf("expected %v, but got %v", tt.textify, res)
@@ -91,14 +95,14 @@ func TestScanner(t *testing.T) {
 func TestInterpreter(t *testing.T) {
 	for _, tt := range cases {
 		scanner := scanner{program: []rune(tt.program)}
-		tokens := scanner.scan()
+		tokens, _ := scanner.scan()
 		parser := parser{tokens: tokens}
 		ast := parser.parse()
 		interpreter := interpreter{ast: ast}
 		value := interpreter.interpret()
 		t.Run(tt.program, func(t *testing.T) {
-			if value.textify() != tt.value {
-				t.Errorf("expected %v, but got %v", tt.value, value.textify())
+			if value.String() != tt.value {
+				t.Errorf("expected %v, but got %v", tt.value, value.String())
 			}
 		})
 	}

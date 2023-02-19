@@ -14,8 +14,9 @@ const (
 	dot        tokenType = "dot"
 	leftParen  tokenType = "leftParen"
 	rightParen tokenType = "rightParen"
-	whiteSpace tokenType = "whiteSpace"
+	whiteSpace tokenType = "whiteSpace" // neccessary for distinguish application
 	identifier tokenType = "identifier"
+	define     tokenType = "define"
 )
 
 type token struct {
@@ -45,7 +46,7 @@ func (s *scanner) addToken(token token) {
 	s.tokens = append(s.tokens, token)
 }
 
-func (s *scanner) identifier() token {
+func (s *scanner) identifier() (token, error) {
 	var id string
 	isLetter := func(c string) bool {
 		return c >= "a" && c <= "z" || c >= "A" && c <= "Z"
@@ -54,11 +55,39 @@ func (s *scanner) identifier() token {
 		id += string(s.current())
 		s.advance()
 	}
+	if id == "" {
+		return token{}, fmt.Errorf("%v cannot be used in identifier", string(s.current()))
+	}
 	s.cur -= 1
-	return token{identifier, id}
+	return token{identifier, id}, nil
 }
 
-func (s *scanner) scan() []token {
+func (s *scanner) match(text string) bool {
+	prev := s.cur
+	reset := func() { s.cur = prev }
+	defer reset()
+	for _, c := range text {
+		if s.isEnd() || c != s.current() {
+			return false
+		}
+		s.advance()
+	}
+	return true
+}
+
+func (s *scanner) consume(text string) string {
+	for range text {
+		s.advance()
+	}
+	return text
+}
+
+func (s *scanner) binding() token {
+	s.consume("def")
+	return token{define, "def"}
+}
+
+func (s *scanner) scan() ([]token, error) {
 	for !s.isEnd() {
 		switch cur := s.current(); cur {
 		case ' ', '\t':
@@ -72,16 +101,34 @@ func (s *scanner) scan() []token {
 		case ')':
 			s.addToken(token{rightParen, ")"})
 		default:
-			s.addToken(s.identifier())
+			// extra space to avoid confliciton with identifier starting with "def"
+			if s.match("def ") {
+				s.addToken(s.binding())
+			}
+			if t, err := s.identifier(); err != nil {
+				return nil, err
+			} else {
+				s.addToken(t)
+			}
 		}
 		s.advance()
 	}
-	return s.tokens
+	return s.tokens, nil
 }
 
 type expression interface {
 	isExpression()
-	textify() string
+	String() string
+}
+
+type binding struct {
+	name  variable
+	value expression
+}
+
+func (binding) isExpression() {}
+func (b binding) String() string {
+	return fmt.Sprintf("(def %v %v)", b.name, b.value)
 }
 
 type abstraction struct {
@@ -91,10 +138,7 @@ type abstraction struct {
 
 func (abstraction) isExpression() {}
 func (a abstraction) String() string {
-	return fmt.Sprintf("(Abs %v %v)", a.param, a.expr)
-}
-func (a abstraction) textify() string {
-	return fmt.Sprintf("(𝞴%v.%v)", a.param.textify(), a.expr.textify())
+	return fmt.Sprintf("(𝞴%v.%v)", a.param, a.expr)
 }
 
 type application struct {
@@ -104,10 +148,7 @@ type application struct {
 
 func (application) isExpression() {}
 func (a application) String() string {
-	return fmt.Sprintf("(App %v %v)", a.left, a.right)
-}
-func (a application) textify() string {
-	return fmt.Sprintf("(%v %v)", a.left.textify(), a.right.textify())
+	return fmt.Sprintf("(%v %v)", a.left, a.right)
 }
 
 type variable struct {
@@ -118,9 +159,6 @@ func (variable) isExpression() {}
 func (v variable) String() string {
 	return fmt.Sprintf("%v", v.identifier)
 }
-func (v variable) textify() string {
-	return v.String()
-}
 
 type parser struct {
 	cur    int
@@ -128,6 +166,9 @@ type parser struct {
 }
 
 func (p *parser) current() token {
+	if p.isEnd() {
+		panic("unexpected eof")
+	}
 	return p.tokens[p.cur]
 }
 
@@ -135,11 +176,26 @@ func (p *parser) advance() {
 	p.cur += 1
 }
 
+func (p *parser) consume(tt tokenType) {
+	if p.isEnd() {
+		panic(fmt.Sprintf("expect %v, but got eof", tt))
+	}
+	if p.current().tokenType != tt {
+		panic(fmt.Sprintf("expect %v, but got %v %v", tt, p.current().tokenType, p.current().lexeme))
+	}
+	p.advance()
+}
+
 func (p *parser) isEnd() bool {
 	return p.cur >= len(p.tokens)
 }
 
 func (p *parser) parse() expression {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(r)
+		}
+	}()
 	return p.expression()
 }
 
@@ -147,11 +203,23 @@ func (p *parser) expression() expression {
 	return p.abstraction()
 }
 
+// func (p *parser) binding() expression {
+// 	if p.current().tokenType == define {
+// 		p.consume(define)
+// 		p.consume(whiteSpace)
+// 		v := p.variable()
+// 		p.consume(whiteSpace)
+// 		abs := p.abstraction()
+// 		return binding{name: v, value: abs}
+// 	}
+// 	return p.abstraction()
+// }
+
 func (p *parser) abstraction() expression {
 	if p.current().tokenType == lambda {
-		p.advance()
+		p.consume(lambda)
 		vars := p.variables()
-		p.advance()
+		p.consume(dot)
 		exp := p.expression()
 		// build nested abstraction
 		res := abstraction{vars[len(vars)-1], exp}
@@ -168,7 +236,7 @@ func (p *parser) abstraction() expression {
 func (p *parser) application() expression {
 	expr := p.atom()
 	for !p.isEnd() && p.current().tokenType == whiteSpace {
-		p.advance()
+		p.consume(whiteSpace)
 		expr = application{expr, p.atom()}
 	}
 	return expr
@@ -179,16 +247,16 @@ func (p *parser) atom() expression {
 		return p.variable()
 	}
 	// TODO: error handling
-	p.advance()
+	p.consume(leftParen)
 	exp := p.expression()
-	p.advance()
+	p.consume(rightParen)
 	return exp
 }
 
 func (p *parser) variables() []variable {
 	variables := []variable{p.variable()}
 	for p.current().tokenType == whiteSpace {
-		p.advance()
+		p.consume(whiteSpace)
 		variables = append(variables, p.variable())
 	}
 	return variables
@@ -196,24 +264,33 @@ func (p *parser) variables() []variable {
 
 func (p *parser) variable() variable {
 	v := p.current().lexeme
-	p.advance()
+	p.consume(identifier)
 	return variable{v}
 }
 
-type binding struct {
-	left  variable
-	right expression
+type environment struct {
+	bindings []struct {
+		left  variable
+		right expression
+	}
 }
 
-type environment struct {
-	bindings []binding
+func (e environment) clone() environment {
+	return environment{
+		bindings: append([]struct {
+			left  variable
+			right expression
+		}{}, e.bindings...),
+	}
 }
 
 func (e environment) bind(left variable, right expression) environment {
-	newE := append([]binding{}, e.bindings...)
-	return environment{
-		append(newE, binding{left, right}),
-	}
+	newE := e.clone()
+	newE.bindings = append(newE.bindings, struct {
+		left  variable
+		right expression
+	}{left, right})
+	return newE
 }
 
 func (e environment) find(left variable) (expression, bool) {
@@ -234,6 +311,7 @@ func (i *interpreter) interpret() expression {
 }
 
 func eval(exp expression, env environment) expression {
+	fmt.Println(exp, env)
 	switch exp := exp.(type) {
 	case abstraction:
 		// variable shadowing
@@ -262,9 +340,15 @@ func repl() {
 	fmt.Print("> ")
 	for s.Scan() {
 		scanner := scanner{program: []rune(s.Text())}
-		parser := parser{tokens: scanner.scan()}
+		tokens, err := scanner.scan()
+		if err != nil {
+			fmt.Println(err)
+			fmt.Print("> ")
+			continue
+		}
+		parser := parser{tokens: tokens}
 		interpreter := interpreter{ast: parser.parse()}
-		fmt.Println(interpreter.interpret().textify())
+		fmt.Println(interpreter.interpret())
 		fmt.Print("> ")
 	}
 	if err := s.Err(); err != nil {
@@ -275,4 +359,18 @@ func repl() {
 
 func main() {
 	repl()
+
+	// program := "asdf saf)"
+	// scanner := scanner{program: []rune(program)}
+	// tokens, err := scanner.scan()
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	return
+	// }
+	// fmt.Println(tokens)
+	// parser := parser{tokens: tokens}
+	// ast := parser.parse()
+	// fmt.Println(ast)
+	// interpreter := interpreter{ast: ast}
+	// fmt.Println(interpreter.interpret())
 }
