@@ -221,6 +221,15 @@ func (v variable) String() string {
 	return fmt.Sprintf("%v", v.identifier)
 }
 
+type freeVariable struct {
+	identifier string
+}
+
+func (freeVariable) isExpression() {}
+func (v freeVariable) String() string {
+	return fmt.Sprintf("%v", v.identifier)
+}
+
 type Parser struct {
 	cur    int
 	Tokens []token
@@ -364,6 +373,11 @@ func (p *Parser) variable() variable {
 	return variable{v}
 }
 
+type envBinding struct {
+	name  variable
+	value expression
+}
+
 type environment struct {
 	bindings []struct {
 		left  variable
@@ -407,7 +421,7 @@ func (i *Interpreter) Interpret(env environment) expression {
 }
 
 func eval(exp expression, env environment) expression {
-	// fmt.Println(exp, env)
+	// fmt.Println(exp)
 	switch exp := exp.(type) {
 	case binding:
 		return eval(exp.body, env.bind(exp.name, eval(exp.value, env)))
@@ -417,6 +431,17 @@ func eval(exp expression, env environment) expression {
 		// variable shadowing
 		return abstraction{exp.param, eval(exp.expr, env.bind(exp.param, exp.param))}
 	case application:
+		// left := exp.left
+		// right := eval(exp.right, env)
+		// switch left := left.(type) {
+		// case abstraction:
+		// 	return eval(left.expr, env.bind(left.param, right))
+		// case application:
+		// 	return eval(application{eval(left, env), right}, env)
+		// default:
+		// 	return application{eval(left, env), right}
+		// }
+
 		left := eval(exp.left, env)
 		right := eval(exp.right, env)
 		switch left := left.(type) {
@@ -425,11 +450,13 @@ func eval(exp expression, env environment) expression {
 		default:
 			return application{left, right}
 		}
+	// case freeVariable:
+	// 	return exp
 	case variable:
 		if right, ok := env.find(exp); ok {
 			return right
 		}
-		return exp
+		return freeVariable(exp)
 	default:
 		return exp
 	}
@@ -445,7 +472,10 @@ func Repl() {
 			fmt.Println(err)
 			break
 		}
-		// remove the ";"
+		if len(text) == 1 {
+			fmt.Print("> ")
+			continue
+		}
 		text = text[:len(text)-1]
 		scanner := Scanner{Program: []rune(text)}
 		tokens, err := scanner.Scan()
